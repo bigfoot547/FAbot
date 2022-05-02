@@ -1,0 +1,14 @@
+{
+  "uplink": {
+    "host": "irc.libera.chat",
+    "port": 6697,
+    "ssl": true
+  },
+  "bot": {
+    "nick": "FAbot2",
+    "ident": "furry",
+    "realname": "Converts FurAffinity post links to raw image URLs",
+    "require_auth": true,
+    "logchan": "##bigfoot-bots-log"
+  }
+}

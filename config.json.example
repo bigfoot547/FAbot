@@ -5,7 +5,7 @@
     "ssl": true
   },
   "bot": {
-    "nick": "FAbot2",
+    "nick": "FAbot",
     "ident": "furry",
     "realname": "Converts FurAffinity post links to raw image URLs",
     "require_auth": true,

@@ -136,6 +136,11 @@ class FABot(irc.SASLIRCBot):
     async def handle_furaffinity(self, message, line, target):
         famatches = list(dict.fromkeys(re.findall(fahandler.FURAFFINITY_POST_PATTERN, message)))
         now = time.time()
+
+        targetchan = target.lower()
+        chandata = self.data['channels'][targetchan]
+        allow_nsfw = 'nsfw' in chandata and chandata['nsfw'] == 'true'
+
         for match in famatches:
             try:
                 info = None
@@ -153,7 +158,7 @@ class FABot(irc.SASLIRCBot):
 
                 if 'error' in info:
                     await self.send_log('FA', f"Lookup failed for \2{match}\2: Error: {info['error']}")
-                    await self.send_message(target, f"[FA/{match}] Error: {info['error']}")
+                    #await self.send_message(target, f"[FA/{match}] Error: {info['error']}")
                     continue
 
                 title: str
@@ -172,11 +177,13 @@ class FABot(irc.SASLIRCBot):
                     download = "No download link found"
                 infostr = f"{title} | Rating: {info['rating']} | {download}"
 
-                await self.send_message(target, f"[FA/{match}] {infostr}")
                 await self.send_log('FA', f"Lookup succeeded for \2{match}\2: {infostr}")
+
+                if info['rating'] == 'General' or allow_nsfw:
+                    await self.send_message(target, f"[FA/{match}] {infostr}")
             except Exception as ex:
                 await self.send_log('FA', f"Lookup failed for \2{match}\2: Exception raised: {type(ex).__name__}: {str(ex)}")
-                await self.send_message(target, f"[FA/{match}] Error: An exception occurred while parsing the webpage.")
+                #await self.send_message(target, f"[FA/{match}] Error: An exception occurred while parsing the webpage.")
 
     def e621_create_poststr(self, post, include_post=False):
         artists: str
@@ -201,7 +208,10 @@ class FABot(irc.SASLIRCBot):
 
         if 'file' in post:
             file_obj = post['file'] or {'width': None, 'height': None, 'url': None}
-            poststr += f"Image ({file_obj['width'] or '?'}x{file_obj['height'] or '?'}): {file_obj['url'] or '(unknown)'}"
+            file_url = file_obj['url']
+            if file_url is not None and post['rating'] == 's':
+                file_url = file_url.replace("static1.e621.net", "static1.e926.net", 1)
+            poststr += f"Image ({file_obj['width'] or '?'}x{file_obj['height'] or '?'}): {file_url or '(unknown)'}"
         else:
             poststr += f"Image (?x?): (unknown)"
 
@@ -210,6 +220,11 @@ class FABot(irc.SASLIRCBot):
     async def handle_e621_posts(self, message, line, target):
         e6matches = list(dict.fromkeys(re.findall(e6handler.E621_POST_PATTERN, message)))
         now = time.time()
+
+        targetchan = target.lower()
+        chandata = self.data['channels'][targetchan]
+        allow_nsfw = 'nsfw' in chandata and chandata['nsfw'] == 'true'
+
         for match in e6matches:
             try:
                 post = None
@@ -234,8 +249,10 @@ class FABot(irc.SASLIRCBot):
                     continue
 
                 poststr = self.e621_create_poststr(post)
-                await self.send_message(target, f"[E621/{match}] {poststr}")
                 await self.send_log('E621', f"Lookup succeeded for \2{match}\2: {poststr}")
+
+                if allow_nsfw or post['rating'] == 's':
+                    await self.send_message(target, f"[E621/{match}] {poststr}")
             except Exception as ex:
                 await self.send_log('E621', f"Lookup failed for \2{match}\2: Exception raised: {type(ex).__name__}: {str(ex)}")
                 await self.send_message(target, f"[E621/{match}] Error: An exception occurred while querying post info.")
@@ -262,6 +279,9 @@ class FABot(irc.SASLIRCBot):
 
     async def handle_e621_static1(self, message, line, target):
         e6matches = list(dict.fromkeys(re.findall(e6handler.E621_IMAGE_PATTERN, message)))
+        targetchan = target.lower()
+        chandata = self.data['channels'][targetchan]
+        allow_nsfw = 'nsfw' in chandata and chandata['nsfw'] == 'true'
 
         for match in e6matches:
             try:
@@ -276,6 +296,9 @@ class FABot(irc.SASLIRCBot):
             await self.send_log('E621', f"Search succeeded for \2{match[1]}\2: {len(results)} post(s) found.")
 
             for post in results:
+                if post['rating'] != 's' and not allow_nsfw:
+                    continue
+
                 poststr = self.e621_create_poststr(post, include_post=True)
                 await self.send_message(target, f"[E621/{post['id']}] {poststr}")
 
@@ -465,8 +488,12 @@ class FABot(irc.SASLIRCBot):
     async def handle_channel_command(self, line, command, params):
         source = line.source['nick']
         target = line.params[0]
+        targetchan = target.lower()
+        chandata = self.data['channels'][targetchan]
 
         if command == 'e6md5':
+            allow_nsfw = 'nsfw' in chandata and chandata['nsfw'] == 'true'
+
             postsearch = None
             if len(params) != 1:
                 await self.send_message(target, f"{source}: Invalid search string. Must be a valid md5 digest.")
@@ -494,9 +521,18 @@ class FABot(irc.SASLIRCBot):
             if len(posts) == 0:
                 await self.send_message(target, f"{source}: No posts were found by that md5 digest.")
                 return
+
+            suppressed_results = 0
             for post in posts:
+                if post['rating'] != 's' and not allow_nsfw:
+                    suppressed_results += 1
+                    continue
+
                 poststr = self.e621_create_poststr(post, include_post=True)
                 await self.send_message(target, f"{source}: [E621/{post['id']}] {poststr}")
+
+            if suppressed_results > 0:
+                await self.send_message(target, f"{source}: {suppressed_results} NSFW result{'' if suppressed_results == 1 else 's'} suppressed.")
         elif command == "search":
             if len(params) == 0:
                 await self.send_message(target, f"{source}: Please supply a search query.")

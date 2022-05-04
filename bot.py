@@ -490,10 +490,9 @@ class FABot(irc.SASLIRCBot):
         target = line.params[0]
         targetchan = target.lower()
         chandata = self.data['channels'][targetchan]
+        allow_nsfw = 'nsfw' in chandata and chandata['nsfw'] == 'true'
 
         if command == 'e6md5':
-            allow_nsfw = 'nsfw' in chandata and chandata['nsfw'] == 'true'
-
             postsearch = None
             if len(params) != 1:
                 await self.send_message(target, f"{source}: Invalid search string. Must be a valid md5 digest.")
@@ -538,7 +537,10 @@ class FABot(irc.SASLIRCBot):
                 await self.send_message(target, f"{source}: Please supply a search query.")
             query = ' '.join(params)
             qquery = urllib.parse.quote_plus(query, safe='', encoding='utf-8', errors='replace')
-            await self.send_message(target, f"{source}: Search for '{query}': https://www.furaffinity.net/search/?q={qquery} | https://e621.net/posts?tags={qquery}")
+            if allow_nsfw:
+                await self.send_message(target, f"{source}: Search for '{query}': https://www.furaffinity.net/search/?q={qquery} | https://e621.net/posts?tags={qquery}")
+            else:
+                await self.send_message(target, f"{source}: Search for '{query}': https://e926.net/posts?tags={qquery}")
 
     async def handle_admin_command(self, line, params):
         source = line.source['nick']

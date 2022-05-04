@@ -482,6 +482,7 @@ class FABot(irc.SASLIRCBot):
             await self.send_notice(source, "There are 2 commands:")
             await self.send_notice(source, "optout - Opt out of the service. It will no longer automatically respond to messages from users of your NickServ account.")
             await self.send_notice(source, "optin - If you have previously opted out, opt back in to the service.")
+            await self.send_log('BOT', f"{line.sourceraw} has used the 'help' command.")
         else:
             await self.send_notice(source, f"Invalid command. Try \2/msg {self.nick} help\2 for a list.")
 

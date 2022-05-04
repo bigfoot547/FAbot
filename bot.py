@@ -1,4 +1,5 @@
 import asyncio
+import urllib.parse
 
 import e6handler
 import irc
@@ -21,7 +22,6 @@ class FABot(irc.SASLIRCBot):
         self.onchans = []
         self._last_try_join_time = time.time()
         self._last_e621_api_call = 0
-        self.last_e6_md5_links = {}
 
         self.fa_recent_lookups = collections.deque(maxlen=20)
         self.e6_recent_post_lookups = collections.deque(maxlen=20)
@@ -128,10 +128,10 @@ class FABot(irc.SASLIRCBot):
             else:
                 opted_out = 'account' in line.tags and line.tags['account']['value'].lower() in self.data['optout']
 
-                await self.handle_e621_static1(message, line, target, opted_out)
                 if not opted_out:
                     await self.handle_furaffinity(message, line, target)
                     await self.handle_e621_posts(message, line, target)
+                    await self.handle_e621_static1(message, line, target)
 
     async def handle_furaffinity(self, message, line, target):
         famatches = list(dict.fromkeys(re.findall(fahandler.FURAFFINITY_POST_PATTERN, message)))
@@ -197,7 +197,7 @@ class FABot(irc.SASLIRCBot):
             poststr += "Post is flagged for deletion | "
 
         if include_post:
-            poststr += f"Post: https://e621.net/posts/{post['id']} | "
+            poststr += f"Post: https://{'e926' if post['rating'] == 's' else 'e621'}.net/posts/{post['id']} | "
 
         if 'file' in post:
             file_obj = post['file'] or {'width': None, 'height': None, 'url': None}
@@ -260,27 +260,10 @@ class FABot(irc.SASLIRCBot):
             self.e6_recent_md5_lookups.append((md5_hash, now, results))
         return results
 
-    async def handle_e621_static1(self, message, line, target, opted_out):
+    async def handle_e621_static1(self, message, line, target):
         e6matches = list(dict.fromkeys(re.findall(e6handler.E621_IMAGE_PATTERN, message)))
-        targetchan = target.lower()
-        if targetchan in self.last_e6_md5_links:
-            last_md5_links = self.last_e6_md5_links[targetchan]
-        else:
-            last_md5_links = collections.deque(maxlen=20)
-            self.last_e6_md5_links[targetchan] = last_md5_links
 
         for match in e6matches:
-            try:
-                last_md5_links.remove(match[1])
-            except ValueError:
-                pass
-
-            last_md5_links.appendleft(match[1])  # Bring this link to the front
-
-            if opted_out or match[0] == '':
-                return
-
-            # They've sent a sample/preview link D:
             try:
                 results = await self.e621_search_md5(match[1], line.sourceraw, target)
             except Exception as ex:
@@ -293,9 +276,8 @@ class FABot(irc.SASLIRCBot):
             await self.send_log('E621', f"Search succeeded for \2{match[1]}\2: {len(results)} post(s) found.")
 
             for post in results:
-                file_url = post['file']['url']
-                if file_url is None: continue
-                await self.send_message(target, f"[E621/{post['id']}] {line.source['nick']}: Full-resolution image ({post['file']['width']}x{post['file']['height']}): {post['file']['url']}")
+                poststr = self.e621_create_poststr(post, include_post=True)
+                await self.send_message(target, f"[E621/{post['id']}] {poststr}")
 
     async def handle_pm_command(self, line, command, params):
         source = line.source['nick']
@@ -483,39 +465,18 @@ class FABot(irc.SASLIRCBot):
     async def handle_channel_command(self, line, command, params):
         source = line.source['nick']
         target = line.params[0]
-        targetchan = target.lower()
-        # TODO: add command to grab static1.e621 links and search for their posts
 
         if command == 'e6md5':
             postsearch = None
-            if len(params) == 0:
-                postsearch = 1
-            elif len(params) == 1:
-                try:
-                    postsearch = int(params[0])
-                except ValueError:
-                    pass
-
-                if postsearch is None and re.fullmatch(VALID_MD5, params[0]):
-                    postsearch = params[0]
-
-            if postsearch is None:
-                await self.send_message(target, f"{source}: Invalid search string. Must be a valid md5 digest or number.")
+            if len(params) != 1:
+                await self.send_message(target, f"{source}: Invalid search string. Must be a valid md5 digest.")
                 return
+            elif len(params) == 1:
+                postsearch = params[0]
 
-            if type(postsearch) is int:
-                if postsearch < 1:
-                    await self.send_message(target, f"{source}: The history index must be 1 or greater.")
-                    return
-                if targetchan not in self.last_e6_md5_links:
-                    await self.send_message(target, f"{source}: I don't remember that many messages in the past.")
-                    return
-
-                try:
-                    postsearch = self.last_e6_md5_links[targetchan][postsearch-1]
-                except IndexError:
-                    await self.send_message(target, f"{source}: I don't remember that many messages in the past.")
-                    return
+            if not re.fullmatch(VALID_MD5, postsearch):
+                await self.send_message(target, f"{source}: Invalid search string. Must be a valid md5 digest.")
+                return
 
             try:
                 posts = await self.e621_search_md5(postsearch, source, target)
@@ -536,6 +497,12 @@ class FABot(irc.SASLIRCBot):
             for post in posts:
                 poststr = self.e621_create_poststr(post, include_post=True)
                 await self.send_message(target, f"{source}: [E621/{post['id']}] {poststr}")
+        elif command == "search":
+            if len(params) == 0:
+                await self.send_message(target, f"{source}: Please supply a search query.")
+            query = ' '.join(params)
+            qquery = urllib.parse.quote_plus(query, safe='', encoding='utf-8', errors='replace')
+            await self.send_message(target, f"{source}: Search for '{query}': https://www.furaffinity.net/search/?q={qquery} | https://e621.net/posts?tags={qquery}")
 
     async def handle_admin_command(self, line, params):
         source = line.source['nick']

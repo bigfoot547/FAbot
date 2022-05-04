@@ -96,15 +96,15 @@ class FABot(irc.SASLIRCBot):
     async def handle_verb_privmsg(self, line):
         target = line.params[0]
         message = line.params[1]
+        is_ctcp = message.startswith('\1') and message.endswith('\1')
 
-        if message.startswith('\1') and message.endswith('\1'):
+        if is_ctcp:
             ctcpmsg = message[1:-1]
             cmd = ctcpmsg.split(' ')[0].upper()
             if cmd == 'VERSION':
                 await self.send_notice(line.source['nick'], '\1VERSION FAbot v1 by \\\1')
-            return
 
-        if target == self.nick:  # PM command
+        if target == self.nick and not is_ctcp:  # PM command
             splt = message.split(' ')
             try:
                 await asyncio.wait_for(self.handle_pm_command(line, splt[0].lower(), splt[1:]), 5.0)

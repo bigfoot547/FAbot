@@ -506,7 +506,7 @@ class FABot(irc.SASLIRCBot):
                 return
 
             try:
-                posts = await self.e621_search_md5(postsearch, source, target)
+                posts = await self.e621_search_md5(postsearch, line.sourceraw, target)
             except Exception as ex:
                 await self.send_log('E621', f"Search failed for \2{postsearch}\2: Exception raised: {type(ex).__name__}: {str(ex)}")
                 await self.send_message(target, f"{source}: Error: An exception was raised while searching for the post.")

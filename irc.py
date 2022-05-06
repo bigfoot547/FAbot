@@ -439,25 +439,18 @@ class IRCBot:
         try:
             await self.on_connect()
 
-            partial = None
+            partial = ''
             while not reader.at_eof() and not self._shutdown:
                 await self.tick_client()
 
                 try:
                     data = await asyncio.wait_for(reader.read(16384), 5.0)
-                    lines = data.decode("utf-8", errors="replace").splitlines(keepends=True)
+                    lines = data.decode("utf-8", errors="replace").split("\r\n")
+                    lines[0] = partial + lines[0]
+                    partial = lines.pop(-1)
 
                     for line in lines:
-                        if partial:
-                            line = partial + line
-                            partial = None
-                        elif not line.endswith("\r") and not line.endswith("\n"):
-                            partial = line
-                            continue
-
                         if line == '' or line.isspace(): continue
-                        line = line.strip('\r\n')
-
                         await self.handle_raw_line(line)
                 except asyncio.TimeoutError:
                     pass

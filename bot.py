@@ -13,6 +13,19 @@ import fahandler
 VALID_MD5 = re.compile('[\\da-f]{32}', re.IGNORECASE)
 
 
+def get_tagstr(tag_list):
+    tagstr = ''
+    added_tags = 0
+    for tag in tag_list:
+        if tagstr != '':
+            tagstr += ', '
+        tagstr += tag
+        added_tags += 1
+        if len(tagstr) > 350:
+            break
+    return tagstr, f" (and {len(tag_list) - added_tags} more)" if len(tag_list) > added_tags else '', tag_list[added_tags:]
+
+
 class FABot(irc.SASLIRCBot):
     def __init__(self, config, secrets):
         super().__init__(secrets['sasluser'], secrets['saslpass'], require_auth=config['require_auth'], nick=config['nick'], ident=config['ident'], realname=config['realname'])
@@ -28,7 +41,8 @@ class FABot(irc.SASLIRCBot):
         self.e6_recent_md5_lookups = collections.deque(maxlen=20)
         self.e6_recent_search_pages = collections.deque(maxlen=20)
 
-        self.e6_recent_post_replies = collections.deque(maxlen=20)
+        self.e6_recent_post_replies = {}
+        self.e6_tag_more = {}
 
     def _load_bot_data(self, filename):
         self.data_filename = filename
@@ -42,6 +56,16 @@ class FABot(irc.SASLIRCBot):
     def _save_bot_data(self):
         with open(self.data_filename, 'w') as fp:
             json.dump(self.data, fp)
+
+    def add_e621_post_reply(self, chan, post):
+        targetchan = chan.lower()
+        if targetchan in self.e6_recent_post_replies:
+            recents = self.e6_recent_post_replies[targetchan]
+        else:
+            recents = collections.deque(maxlen=20)
+            self.e6_recent_post_replies[targetchan] = recents
+
+        recents.appendleft(post)
 
     async def send_message(self, target, message):
         await self.write_line(irc.IRCLine(verb='PRIVMSG', params=[target, message]))
@@ -265,6 +289,7 @@ class FABot(irc.SASLIRCBot):
                 await self.send_log('E621', f"Lookup succeeded for \2{match}\2: {poststr}")
 
                 if allow_nsfw or post['rating'] == 's':
+                    self.add_e621_post_reply(targetchan, post)
                     await self.send_message(target, f"[E621/{match}] {poststr}")
             except Exception as ex:
                 await self.send_log('E621', f"Lookup failed for \2{match}\2: Exception raised: {type(ex).__name__}: {str(ex)}")
@@ -310,6 +335,7 @@ class FABot(irc.SASLIRCBot):
                     continue
 
                 poststr = self.e621_create_poststr(post, include_post=True)
+                self.add_e621_post_reply(targetchan, post)
                 await self.send_message(target, f"[E621/{post['id']}] {poststr}")
 
     async def handle_pm_command(self, line, command, params):
@@ -540,6 +566,7 @@ class FABot(irc.SASLIRCBot):
                     continue
 
                 poststr = self.e621_create_poststr(post, include_post=True)
+                self.add_e621_post_reply(targetchan, post)
                 await self.send_message(target, f"{source}: [E621/{post['id']}] {poststr}")
 
             if suppressed_results > 0:
@@ -572,6 +599,7 @@ class FABot(irc.SASLIRCBot):
 
             poststr = self.e621_create_poststr(random_post, include_post=True)
             await self.send_log('E621', f"Random search succeeded for \2{tags}\2: {poststr}")
+            self.add_e621_post_reply(targetchan, random_post)
             await self.send_message(target, f"{source}: {poststr}")
         elif command == 'e6search':
             resnum = 1
@@ -626,7 +654,61 @@ class FABot(irc.SASLIRCBot):
 
             post = page_results[residx]
             poststr = self.e621_create_poststr(post, include_post=True)
+            self.add_e621_post_reply(targetchan, post)
             await self.send_message(target, f"{source}: {poststr}")
+        elif command == 'e6tags':
+            if len(params) == 1 and params[0] == '+':
+                if targetchan not in self.e6_tag_more:
+                    await self.send_message(target, f"{source}: There are no more tags to display.")
+                    return
+
+                more = self.e6_tag_more[targetchan]
+                if len(more[0]) == 0:
+                    await self.send_message(target, f"{source}: There are no more tags to display.")
+                    return
+
+                tag_list = more[0]
+                post_id = more[1]
+                more = True
+            else:
+                histidx = 1
+                if len(params) == 1:
+                    try:
+                        histidx = int(params[0])
+                    except ValueError:
+                        await self.send_message(target, f"{source}: The history index must be an integer greater than or equal to 1.")
+                        return
+                elif len(params) > 1:
+                    await self.send_message(target, f"{source}: Usage: e6tags [histidx]|+")
+
+                if histidx < 1:
+                    await self.send_message(target, f"{source}: The history index must be an integer greater than or equal to 1.")
+                    return
+
+                histidx -= 1  # convert to 0-based index
+
+                post = None
+                if targetchan in self.e6_recent_post_replies:
+                    recents = self.e6_recent_post_replies[targetchan]
+                    if len(recents) > histidx:
+                        post = recents[histidx]
+
+                if not post:
+                    await self.send_message(target, f"{source}: I don't remember that many recent posts.")
+                    return
+
+                tags = set()
+                for key in post['tags']:
+                    for tag in post['tags'][key]:
+                        tags.add(tag)
+                tag_list = sorted(tags)
+                post_id = post['id']
+                more = False
+
+            tagstr, extrastr, leftover = get_tagstr(tag_list)
+
+            await self.send_message(target, f"{source}: [E621/{post_id}{'+' if more else ''}] {tagstr}{extrastr}")
+            self.e6_tag_more[targetchan] = (leftover, post_id)
 
     async def handle_admin_command(self, line, params):
         source = line.source['nick']

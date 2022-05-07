@@ -600,7 +600,7 @@ class FABot(irc.SASLIRCBot):
             poststr = self.e621_create_poststr(random_post, include_post=True)
             await self.send_log('E621', f"Random search succeeded for \2{tags}\2: {poststr}")
             self.add_e621_post_reply(targetchan, random_post)
-            await self.send_message(target, f"{source}: {poststr}")
+            await self.send_message(target, f"{source}: [E621/{random_post['id']}] {poststr}")
         elif command == 'e6search':
             resnum = 1
             tags = None
@@ -655,7 +655,7 @@ class FABot(irc.SASLIRCBot):
             post = page_results[residx]
             poststr = self.e621_create_poststr(post, include_post=True)
             self.add_e621_post_reply(targetchan, post)
-            await self.send_message(target, f"{source}: {poststr}")
+            await self.send_message(target, f"{source}: [E621/{post['id']}] {poststr}")
         elif command == 'e6tags':
             if len(params) == 1 and params[0] == '+':
                 if targetchan not in self.e6_tag_more:

@@ -217,6 +217,12 @@ class FABot(irc.SASLIRCBot):
 
         return poststr
 
+    async def e621_ratelimit_wait(self):
+        now = time.time()
+        since_last = now - self._last_e621_api_call
+        if since_last < 0.6:
+            await asyncio.sleep(0.6 - since_last)
+
     async def handle_e621_posts(self, message, line, target):
         e6matches = list(dict.fromkeys(re.findall(e6handler.E621_POST_PATTERN, message)))
         now = time.time()
@@ -235,10 +241,8 @@ class FABot(irc.SASLIRCBot):
 
                 if post is None:
                     await self.send_log('E621', f"Looking up post \2{match}\2 (requested by {line.sourceraw} in {target})")
-                    since_last = now - self._last_e621_api_call
-                    if since_last < 0.6:
-                        await asyncio.sleep(0.6 - since_last)
-                        now = time.time()
+                    await self.e621_ratelimit_wait()
+                    now = time.time()
                     post = e6handler.get_post_info(self.__secrets['auth']['e621'], match)
                     self._last_e621_api_call = now
                     self.e6_recent_post_lookups.append((match, now, post))
@@ -268,11 +272,8 @@ class FABot(irc.SASLIRCBot):
 
         if results is None:
             await self.send_log('E621', f"Searching for post \2{md5_hash}\2 (requested by {source} in {target})")
-            since_last = now - self._last_e621_api_call
-            if since_last < 0.6:
-                await asyncio.sleep(0.6 - since_last)
-                now = time.time()
-
+            await self.e621_ratelimit_wait()
+            now = time.time()
             results = e6handler.search_post_hash(self.__secrets['auth']['e621'], md5_hash)
             self.e6_recent_md5_lookups.append((md5_hash, now, results))
         return results
@@ -542,6 +543,28 @@ class FABot(irc.SASLIRCBot):
                 await self.send_message(target, f"{source}: Search for '{query}': https://www.furaffinity.net/search/?q={qquery} | https://e621.net/posts?tags={qquery}")
             else:
                 await self.send_message(target, f"{source}: Search for '{query}': https://e926.net/posts?tags={qquery}")
+        elif command == 'random' or command == 'e6random' or command == 'rnd' or command == 'e6rnd':
+            tags = ' '.join(params)
+            await self.send_log('E621', f"Searching for random post with tags \2{tags}\2 (requested by {line.sourceraw} in {target})")
+            await self.e621_ratelimit_wait()
+
+            try:
+                random_post = e6handler.search_post_random(self.__secrets['auth']['e621'], tags, not allow_nsfw)
+            except Exception as ex:
+                await self.send_log('E621', f"Random search failed for \2{tags}\2: Exception raised: {type(ex).__name__}: {str(ex)}")
+                await self.send_message(target, f"{source}: Error: An exception was raised while querying a random post.")
+                return
+
+            if 'error' in random_post:
+                await self.send_log('E621', f"Random search failed for \2{tags}\2: {random_post['error']}")
+                await self.send_message(target, f"{source}: Error: {random_post['error']}")
+                return
+
+            print(random_post)
+            poststr = self.e621_create_poststr(random_post, include_post=True)
+            await self.send_log('E621', f"Random search succeeded for \2{tags}\2: {poststr}")
+            await self.send_message(target, f"{source}: {poststr}")
+
 
     async def handle_admin_command(self, line, params):
         source = line.source['nick']

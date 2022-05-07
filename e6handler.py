@@ -39,7 +39,7 @@ def get_post_info(secrets, post_id):
 
 
 def search_post_hash(secrets, md5_hash):
-    search_url = f"https://e621.net/posts.json?tags={urllib.parse.quote(f'md5:{md5_hash} status:any', safe='', encoding='utf-8', errors='replace')}"
+    search_url = f"https://e621.net/posts.json?tags={urllib.parse.quote_plus(f'md5:{md5_hash} status:any', safe='', encoding='utf-8', errors='replace')}"
     response = requests.get(search_url,
                             headers={'User-Agent': USER_AGENT},
                             auth=requests.auth.HTTPBasicAuth(secrets['username'], secrets['api_key']))
@@ -51,3 +51,24 @@ def search_post_hash(secrets, md5_hash):
     except json.JSONDecodeError as ex:
         traceback.print_exception(type(ex), ex, ex.__traceback__)
         return {'error': "Unable to decode response from server (please contact the bot owner immediately)"}
+
+
+def search_post_random(secrets, tags: str, sfw: bool):
+    search_url = f"https://{'e926' if sfw else 'e621'}.net/posts/random.json?tags={urllib.parse.quote_plus(tags, safe='', encoding='utf-8', errors='replace')}"
+    response = requests.get(search_url,
+                            headers={'User-Agent': USER_AGENT},
+                            auth=requests.auth.HTTPBasicAuth(secrets['username'], secrets['api_key']))
+    if response.status_code == 404:
+        return {'error': f"No posts were found by those tags"}
+    elif response.status_code != 200:
+        return {'error': f"Server responded with {response.status_code} {response.reason}"}
+
+    try:
+        res = response.json()
+    except json.JSONDecodeError as ex:
+        traceback.print_exception(type(ex), ex, ex.__traceback__)
+        return {'error': "Unable to decode response from server (please contact the bot owner immediately)"}
+
+    if 'success' in res and not res['success']:
+        return {'error': f"Request unsuccessful: {res['reason']}"}
+    return res['post']

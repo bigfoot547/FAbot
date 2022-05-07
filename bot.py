@@ -26,6 +26,9 @@ class FABot(irc.SASLIRCBot):
         self.fa_recent_lookups = collections.deque(maxlen=20)
         self.e6_recent_post_lookups = collections.deque(maxlen=20)
         self.e6_recent_md5_lookups = collections.deque(maxlen=20)
+        self.e6_recent_search_pages = collections.deque(maxlen=20)
+
+        self.e6_recent_post_replies = collections.deque(maxlen=20)
 
     def _load_bot_data(self, filename):
         self.data_filename = filename
@@ -197,7 +200,13 @@ class FABot(irc.SASLIRCBot):
         else:
             artists = f"{', '.join(artist_tags[:3])} (and {len(artist_tags) - 3} more)"
 
-        poststr = f"Art by {artists} | Rating: {e6handler.get_rating(post['rating'])} | Score: {post['score']['total']:+} | "
+        total_votes = post['score']['up'] + abs(post['score']['down'])
+        if total_votes > 0:
+            upvote_percent = (post['score']['up'] / total_votes) * 100
+        else:
+            upvote_percent = 0
+
+        poststr = f"Art by {artists} | Rating: {e6handler.get_rating(post['rating'])} | Score: {post['score']['total']:+} ({upvote_percent:.0f}%) | "
         if post['flags']['deleted']:
             poststr += "Post is deleted | "
         elif post['flags']['flagged']:
@@ -427,6 +436,7 @@ class FABot(irc.SASLIRCBot):
 
             self.e6_recent_post_lookups.clear()
             self.e6_recent_md5_lookups.clear()
+            self.e6_recent_search_pages.clear()
             await self.send_log('E621', f"Recent post lookups and searches cleared (requested by {line.sourceraw})")
         elif command == 'listoptout' and is_admin:
             if len(params) != 0:
@@ -560,11 +570,63 @@ class FABot(irc.SASLIRCBot):
                 await self.send_message(target, f"{source}: Error: {random_post['error']}")
                 return
 
-            print(random_post)
             poststr = self.e621_create_poststr(random_post, include_post=True)
             await self.send_log('E621', f"Random search succeeded for \2{tags}\2: {poststr}")
             await self.send_message(target, f"{source}: {poststr}")
+        elif command == 'e6search':
+            resnum = 1
+            tags = None
+            if len(params) > 0 and params[0].isnumeric():
+                resnum = int(params[0])
+                if resnum <= 0:
+                    await self.send_message(target, f"{source}: Invalid result number. Must be greater than 0.")
+                    return
+                tags = ' '.join(params[1:])
+            if tags is None:
+                tags = ' '.join(params)
 
+            resnum -= 1  # Turn it into a 0-based index
+            pageidx = int(resnum / 100)
+            residx = resnum % 100
+
+            if pageidx < 0 or pageidx >= 750:
+                await self.send_message(target, f"{source}: Invalid page number. The result must fall before page 751.")
+                return
+
+            await self.send_log('E621', f"Searching for result \2{resnum}\2 of search \2{tags}\2 (requested by {line.sourceraw} in {target})")
+
+            now = time.time()
+            page_results = None
+            for lookup in self.e6_recent_search_pages:
+                if lookup[0] == tags and lookup[1] == pageidx and now - lookup[2] < 300:
+                    page_results = lookup[3]
+                    await self.send_log('E621', f"Found cached page: {len(page_results)} result(s) (requested by {line.sourceraw} in {target})")
+                    break
+
+            if page_results is None:
+                await self.e621_ratelimit_wait()
+                now = time.time()
+                try:
+                    page_results = e6handler.search_post_tags(self.__secrets['auth']['e621'], tags, not allow_nsfw, pageidx=pageidx)
+                except Exception as ex:
+                    await self.send_log('E621', f"Search failed: Exception raised: {type(ex).__name__}: {str(ex)}")
+                    await self.send_message(target, f"Error: An exception was raised while searching for the post.")
+                    return
+                self.e6_recent_search_pages.append((tags, pageidx, now, page_results))
+
+            if 'error' in page_results:
+                await self.send_log('E621', f"Search failed: {page_results['error']}")
+                await self.send_message(target, f"Error: {page_results['error']}")
+                return
+
+            await self.send_log('E621', f"Search succeeded: {len(page_results)} result(s) found.")
+            if residx >= len(page_results):
+                await self.send_message(target, "There are not that many results for that search.")
+                return
+
+            post = page_results[residx]
+            poststr = self.e621_create_poststr(post, include_post=True)
+            await self.send_message(target, f"{source}: {poststr}")
 
     async def handle_admin_command(self, line, params):
         source = line.source['nick']

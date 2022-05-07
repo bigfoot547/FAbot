@@ -10,6 +10,10 @@ import traceback
 # 2847950
 E621_POST_PATTERN = re.compile("e(?:621|926)\\.net/(?:posts|post/show)/(\\d+)", re.IGNORECASE)
 E621_IMAGE_PATTERN = re.compile("static1\\.e(?:621|926)\\.net/data/(preview/|sample/)?[\\da-f]{2}/[\\da-f]{2}/([\\da-f]+)\\.[a-z]+", re.IGNORECASE)
+
+E621_FULL_POST_PATTERN = re.compile("(?:https?://)?e(?:621|926)\\.net/(?:posts|post/show)/(\\d+)(?:\\?[^ ])?")
+E621_FULL_IMAGE_PATTERN = re.compile("(?:https?://)?static1\\.e(?:621|926)\\.net/data/(preview/|sample/)?[\\da-f]{2}/[\\da-f]{2}/([\\da-f]+)\\.[a-z]+")
+
 USER_AGENT = "FAbot/0.1 (by one_two_oatmeal on e621)"
 RATINGS = {'s': "Safe", 'q': "Questionable", 'e': "Explicit"}
 
@@ -72,3 +76,22 @@ def search_post_random(secrets, tags: str, sfw: bool):
     if 'success' in res and not res['success']:
         return {'error': f"Request unsuccessful: {res['reason']}"}
     return res['post']
+
+
+def search_post_tags(secrets, tags: str, sfw: bool, pageidx=0):
+    search_url = f"https://{'e926' if sfw else 'e621'}.net/posts.json?tags={urllib.parse.quote_plus(tags, safe='', encoding='utf-8', errors='replace')}&limit=100&page={pageidx + 1}"
+    response = requests.get(search_url,
+                            headers={'User-Agent': USER_AGENT},
+                            auth=requests.auth.HTTPBasicAuth(secrets['username'], secrets['api_key']))
+    if response.status_code != 200:
+        return {'error': f"Server responded with {response.status_code} {response.reason}"}
+
+    try:
+        res = response.json()
+    except json.JSONDecodeError as ex:
+        traceback.print_exception(type(ex), ex, ex.__traceback__)
+        return {'error': "Unable to decode response from server (please contact the bot owner immediately)"}
+
+    if 'success' in res and not res['success']:
+        return {'error': f"Request unsuccessful: {res['reason']}"}
+    return res['posts']

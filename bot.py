@@ -151,7 +151,7 @@ class FABot(irc.SASLIRCBot):
             elif re.match(f'^{re.escape(self.nick)}[:,]? ', message, re.IGNORECASE):
                 splt = message.split(' ')
                 if len(splt) < 2: return
-                await self.handle_channel_command(line, splt[1], splt[2:])
+                await self.handle_channel_command(line, splt[1].lower(), splt[2:])
             else:
                 opted_out = 'account' in line.tags and line.tags['account']['value'].lower() in self.data['optout']
 

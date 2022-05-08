@@ -5,9 +5,6 @@ import requests.auth
 import urllib.parse
 import traceback
 
-# https://e926.net/posts/3309661
-# https://e926.net/post/show/3309661
-# 2847950
 E621_POST_PATTERN = re.compile("e(?:621|926)\\.net/(?:posts|post/show)/(\\d+)", re.IGNORECASE)
 E621_IMAGE_PATTERN = re.compile("static1\\.e(?:621|926)\\.net/data/(preview/|sample/)?[\\da-f]{2}/[\\da-f]{2}/([\\da-f]+)\\.[a-z]+", re.IGNORECASE)
 
@@ -16,6 +13,8 @@ E621_FULL_IMAGE_PATTERN = re.compile("(?:https?://)?static1\\.e(?:621|926)\\.net
 
 USER_AGENT = "FAbot/0.1 (by one_two_oatmeal on e621)"
 RATINGS = {'s': "Safe", 'q': "Questionable", 'e': "Explicit"}
+BLACKLIST_GENERAL = ['feral', 'gore', 'rape', 'scat', 'young']
+BLACKLIST_SEARCHSTR = ''
 
 
 def get_rating(key):
@@ -58,7 +57,7 @@ def search_post_hash(secrets, md5_hash):
 
 
 def search_post_random(secrets, tags: str, sfw: bool):
-    search_url = f"https://{'e926' if sfw else 'e621'}.net/posts/random.json?tags={urllib.parse.quote_plus(tags, safe='', encoding='utf-8', errors='replace')}"
+    search_url = f"https://{'e926' if sfw else 'e621'}.net/posts/random.json?tags={urllib.parse.quote_plus(BLACKLIST_SEARCHSTR + ' ' + tags, safe='', encoding='utf-8', errors='replace')}"
     response = requests.get(search_url,
                             headers={'User-Agent': USER_AGENT},
                             auth=requests.auth.HTTPBasicAuth(secrets['username'], secrets['api_key']))
@@ -79,7 +78,7 @@ def search_post_random(secrets, tags: str, sfw: bool):
 
 
 def search_post_tags(secrets, tags: str, sfw: bool, pageidx=0):
-    search_url = f"https://{'e926' if sfw else 'e621'}.net/posts.json?tags={urllib.parse.quote_plus(tags, safe='', encoding='utf-8', errors='replace')}&limit=100&page={pageidx + 1}"
+    search_url = f"https://{'e926' if sfw else 'e621'}.net/posts.json?tags={urllib.parse.quote_plus(BLACKLIST_SEARCHSTR + ' ' + tags, safe='', encoding='utf-8', errors='replace')}&limit=100&page={pageidx + 1}"
     response = requests.get(search_url,
                             headers={'User-Agent': USER_AGENT},
                             auth=requests.auth.HTTPBasicAuth(secrets['username'], secrets['api_key']))
@@ -95,3 +94,10 @@ def search_post_tags(secrets, tags: str, sfw: bool, pageidx=0):
     if 'success' in res and not res['success']:
         return {'error': f"Request unsuccessful: {res['reason']}"}
     return res['posts']
+
+
+for item in BLACKLIST_GENERAL:
+    if BLACKLIST_SEARCHSTR != '':
+        BLACKLIST_SEARCHSTR += ' '
+    BLACKLIST_SEARCHSTR += '-' + item
+print(BLACKLIST_SEARCHSTR)

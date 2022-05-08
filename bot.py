@@ -224,24 +224,37 @@ class FABot(irc.SASLIRCBot):
         else:
             artists = f"{', '.join(artist_tags[:3])} (and {len(artist_tags) - 3} more)"
 
+        post_blacklisted = False
+        for tag in e6handler.BLACKLIST_GENERAL:
+            if tag in post['tags']['general']:
+                post_blacklisted = True
+                continue
+
+        poststr = f"[E621/{'(blacklisted)' if post_blacklisted else post['id']}] "
+
         total_votes = post['score']['up'] + abs(post['score']['down'])
         if total_votes > 0:
             upvote_percent = (post['score']['up'] / total_votes) * 100
         else:
             upvote_percent = 0
 
-        poststr = f"Art by {artists} | Rating: {e6handler.get_rating(post['rating'])} | Score: {post['score']['total']:+} ({upvote_percent:.0f}%) | "
+        poststr += f"Art by {artists} | Rating: {e6handler.get_rating(post['rating'])} | Score: {post['score']['total']:+} ({upvote_percent:.0f}%) | "
         if post['flags']['deleted']:
             poststr += "Post is deleted | "
         elif post['flags']['flagged']:
             poststr += "Post is flagged for deletion | "
 
         if include_post:
-            poststr += f"Post: https://{'e926' if post['rating'] == 's' else 'e621'}.net/posts/{post['id']} | "
+            if post_blacklisted:
+                poststr += f"Post: (blacklisted) | "
+            else:
+                poststr += f"Post: https://{'e926' if post['rating'] == 's' else 'e621'}.net/posts/{post['id']} | "
 
         if 'file' in post:
             file_obj = post['file'] or {'width': None, 'height': None, 'url': None}
             file_url = file_obj['url']
+            if file_url is not None and post_blacklisted:
+                file_url = "(blacklisted)"
             if file_url is not None and post['rating'] == 's':
                 file_url = file_url.replace("static1.e621.net", "static1.e926.net", 1)
             poststr += f"Image ({file_obj['width'] or '?'}x{file_obj['height'] or '?'}): {file_url or '(unknown)'}"
@@ -290,7 +303,7 @@ class FABot(irc.SASLIRCBot):
 
                 if allow_nsfw or post['rating'] == 's':
                     self.add_e621_post_reply(targetchan, post)
-                    await self.send_message(target, f"[E621/{match}] {poststr}")
+                    await self.send_message(target, poststr)
             except Exception as ex:
                 await self.send_log('E621', f"Lookup failed for \2{match}\2: Exception raised: {type(ex).__name__}: {str(ex)}")
                 await self.send_message(target, f"[E621/{match}] Error: An exception occurred while querying post info.")
@@ -336,7 +349,7 @@ class FABot(irc.SASLIRCBot):
 
                 poststr = self.e621_create_poststr(post, include_post=True)
                 self.add_e621_post_reply(targetchan, post)
-                await self.send_message(target, f"[E621/{post['id']}] {poststr}")
+                await self.send_message(target, poststr)
 
     async def handle_pm_command(self, line, command, params):
         source = line.source['nick']
@@ -516,10 +529,7 @@ class FABot(irc.SASLIRCBot):
             if len(params) != 0:
                 await self.send_notice(source, "Usage: help")
                 return
-            await self.send_notice(source, "There are 2 commands:")
-            await self.send_notice(source, "optout - Opt out of the service. It will no longer automatically respond to messages from users of your NickServ account.")
-            await self.send_notice(source, "optin - If you have previously opted out, opt back in to the service.")
-            await self.send_log('BOT', f"{line.sourceraw} has used the 'help' command.")
+            await self.send_notice(source, "See https://github.com/bigfoot547/FAbot/blob/master/README.md")
         else:
             await self.send_notice(source, f"Invalid command. Try \2/msg {self.nick} help\2 for a list.")
 
@@ -567,7 +577,7 @@ class FABot(irc.SASLIRCBot):
 
                 poststr = self.e621_create_poststr(post, include_post=True)
                 self.add_e621_post_reply(targetchan, post)
-                await self.send_message(target, f"{source}: [E621/{post['id']}] {poststr}")
+                await self.send_message(target, f"{source}: {poststr}")
 
             if suppressed_results > 0:
                 await self.send_message(target, f"{source}: {suppressed_results} NSFW result{'' if suppressed_results == 1 else 's'} suppressed.")
@@ -600,7 +610,7 @@ class FABot(irc.SASLIRCBot):
             poststr = self.e621_create_poststr(random_post, include_post=True)
             await self.send_log('E621', f"Random search succeeded for \2{tags}\2: {poststr}")
             self.add_e621_post_reply(targetchan, random_post)
-            await self.send_message(target, f"{source}: [E621/{random_post['id']}] {poststr}")
+            await self.send_message(target, f"{source}: {poststr}")
         elif command == 'e6search':
             resnum = 1
             tags = None
@@ -655,7 +665,7 @@ class FABot(irc.SASLIRCBot):
             post = page_results[residx]
             poststr = self.e621_create_poststr(post, include_post=True)
             self.add_e621_post_reply(targetchan, post)
-            await self.send_message(target, f"{source}: [E621/{post['id']}] {poststr}")
+            await self.send_message(target, f"{source}: {poststr}")
         elif command == 'e6tags':
             if len(params) == 1 and params[0] == '+':
                 if targetchan not in self.e6_tag_more:
@@ -709,6 +719,11 @@ class FABot(irc.SASLIRCBot):
 
             await self.send_message(target, f"{source}: [E621/{post_id}{'+' if more else ''}] {tagstr}{extrastr}")
             self.e6_tag_more[targetchan] = (leftover, post_id)
+        elif command == 'help':
+            if len(params) != 0:
+                await self.send_message(target, f"{source}: Usage: help")
+                return
+            await self.send_message(target, f"{source}: See https://github.com/bigfoot547/FAbot/blob/master/README.md")
 
     async def handle_admin_command(self, line, params):
         source = line.source['nick']

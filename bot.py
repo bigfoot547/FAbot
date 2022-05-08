@@ -250,6 +250,14 @@ class FABot(irc.SASLIRCBot):
             else:
                 poststr += f"Post: https://{'e926' if post['rating'] == 's' else 'e621'}.net/posts/{post['id']} | "
 
+        content_warning = set()
+        for bl in e6handler.BLACKLIST_GENERAL:
+            if bl in post['tags']['general']:
+                content_warning.add(bl)
+        for cw in e6handler.CONTENT_WARNING_GENERAL:
+            if cw in post['tags']['general']:
+                content_warning.add(cw)
+
         if 'file' in post:
             file_obj = post['file'] or {'width': None, 'height': None, 'url': None}
             file_url = file_obj['url']
@@ -260,6 +268,9 @@ class FABot(irc.SASLIRCBot):
             poststr += f"Image ({file_obj['width'] or '?'}x{file_obj['height'] or '?'}): {file_url or '(unknown)'}"
         else:
             poststr += f"Image (?x?): (unknown)"
+
+        if len(content_warning) > 0:
+            poststr += f" | CW: {', '.join(content_warning)}"
 
         return poststr
 

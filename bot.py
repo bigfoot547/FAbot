@@ -228,7 +228,13 @@ class FABot(irc.SASLIRCBot):
         for tag in e6handler.BLACKLIST_GENERAL:
             if tag in post['tags']['general']:
                 post_blacklisted = True
-                continue
+                break
+
+        if not post_blacklisted:
+            for tag in e6handler.BLACKLIST_GENERAL_POST:
+                if tag in post['tags']['general']:
+                    post_blacklisted = True
+                    break
 
         poststr = f"[E621/{'(blacklisted)' if post_blacklisted else post['id']}] "
 
@@ -254,6 +260,9 @@ class FABot(irc.SASLIRCBot):
         for bl in e6handler.BLACKLIST_GENERAL:
             if bl in post['tags']['general']:
                 content_warning.add(bl)
+        for blp in e6handler.BLACKLIST_GENERAL_POST:
+            if blp in post['tags']['general']:
+                content_warning.add(blp)
         for cw in e6handler.CONTENT_WARNING_GENERAL:
             if cw in post['tags']['general']:
                 content_warning.add(cw)

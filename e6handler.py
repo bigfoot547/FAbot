@@ -14,6 +14,7 @@ E621_FULL_IMAGE_PATTERN = re.compile("(?:https?://)?static1\\.e(?:621|926)\\.net
 USER_AGENT = "FAbot/0.1 (by one_two_oatmeal on e621)"
 RATINGS = {'s': "Safe", 'q': "Questionable", 'e': "Explicit"}
 BLACKLIST_GENERAL = ['feral', 'rape', 'young']
+BLACKLIST_GENERAL_POST = ['bestiality']
 CONTENT_WARNING_GENERAL = ['scat', 'watersports', 'vore', 'gore', 'what_has_science_done', 'where_is_your_god_now', 'pregnant']
 BLACKLIST_SEARCHSTR = ''
 

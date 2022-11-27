@@ -225,10 +225,17 @@ class FABot(irc.SASLIRCBot):
             artists = f"{', '.join(artist_tags[:3])} (and {len(artist_tags) - 3} more)"
 
         post_blacklisted = False
-        for tag in e6handler.BLACKLIST_GENERAL:
-            if tag in post['tags']['general']:
-                post_blacklisted = True
-                break
+        if post['rating'] != 's':
+            for tag in e6handler.BLACKLIST_SAFE:
+                if tag in post['tags']['general']:
+                    post_blacklisted = True
+                    break
+
+        if not post_blacklisted:
+            for tag in e6handler.BLACKLIST_GENERAL:
+                if tag in post['tags']['general']:
+                    post_blacklisted = True
+                    break
 
         if not post_blacklisted:
             for tag in e6handler.BLACKLIST_GENERAL_POST:
@@ -257,6 +264,10 @@ class FABot(irc.SASLIRCBot):
                 poststr += f"Post: https://{'e926' if post['rating'] == 's' else 'e621'}.net/posts/{post['id']} | "
 
         content_warning = set()
+        if post['rating'] != 's':
+            for bls in e6handler.BLACKLIST_SAFE:
+                if bls in post['tags']['general']:
+                    content_warning.add(bls)
         for bl in e6handler.BLACKLIST_GENERAL:
             if bl in post['tags']['general']:
                 content_warning.add(bl)
@@ -633,15 +644,22 @@ class FABot(irc.SASLIRCBot):
             await self.send_message(target, f"{source}: {poststr}")
         elif command == 'e6search':
             resnum = 1
-            tags = None
+            tags_arr = None
+            search_forcesafe = False
             if len(params) > 0 and params[0].isnumeric():
                 resnum = int(params[0])
                 if resnum <= 0:
                     await self.send_message(target, f"{source}: Invalid result number. Must be greater than 0.")
                     return
-                tags = ' '.join(params[1:])
-            if tags is None:
-                tags = ' '.join(params)
+                tags_arr = params[1:]
+            if tags_arr is None:
+                tags_arr = params
+
+            tags = ' '.join(tags_arr)
+
+            for tag in tags_arr:
+                if tag.lower() in e6handler.BLACKLIST_SAFE:
+                    search_forcesafe = True
 
             resnum -= 1  # Turn it into a 0-based index
             pageidx = int(resnum / 100)
@@ -665,7 +683,7 @@ class FABot(irc.SASLIRCBot):
                 await self.e621_ratelimit_wait()
                 now = time.time()
                 try:
-                    page_results = e6handler.search_post_tags(self.__secrets['auth']['e621'], tags, not allow_nsfw, pageidx=pageidx)
+                    page_results = e6handler.search_post_tags(self.__secrets['auth']['e621'], tags, search_forcesafe or not allow_nsfw, pageidx=pageidx)
                 except Exception as ex:
                     await self.send_log('E621', f"Search failed: Exception raised: {type(ex).__name__}: {str(ex)}")
                     await self.send_message(target, f"Error: An exception was raised while searching for the post.")
